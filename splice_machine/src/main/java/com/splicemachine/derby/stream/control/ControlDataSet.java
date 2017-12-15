@@ -45,6 +45,7 @@ import com.splicemachine.primitives.Bytes;
 import com.splicemachine.si.impl.driver.SIDriver;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.apache.commons.collections.IteratorUtils;
+import org.apache.commons.collections.iterators.IteratorChain;
 import org.spark_project.guava.base.Function;
 import org.spark_project.guava.base.Predicate;
 import org.spark_project.guava.collect.Iterators;
@@ -244,8 +245,8 @@ public class ControlDataSet<V> implements DataSet<V> {
         tpe.prestartAllCoreThreads();
         Future<Iterator<V>> leftSideFuture = tpe.submit(new NonLazy(iterator));
         Future<Iterator<V>> rightSideFuture = tpe.submit(new NonLazy(((ControlDataSet<V>) dataSet).iterator));
-
-        return new ControlDataSet<>(Iterators.concat(leftSideFuture.get(), rightSideFuture.get()));
+        Iterator<V> futureIterator = FutureIterator.<V>concat(leftSideFuture,rightSideFuture);
+        return new ControlDataSet<>(futureIterator);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
