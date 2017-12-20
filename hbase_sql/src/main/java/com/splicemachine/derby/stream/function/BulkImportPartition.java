@@ -29,6 +29,7 @@ import java.util.Comparator;
  */
 public class BulkImportPartition implements Externalizable {
     private Long conglomerateId;
+    private String encodedRegionName;
     private byte[] startKey;
     private byte[] endKey;
     private String filePath;
@@ -36,10 +37,12 @@ public class BulkImportPartition implements Externalizable {
     public BulkImportPartition() {}
 
     public BulkImportPartition(Long conglomerateId,
-                        byte[] startKey,
-                        byte[] endKey,
-                        String filePath) {
+                               String encodedRegionName,
+                               byte[] startKey,
+                               byte[] endKey,
+                               String filePath) {
         this.conglomerateId = conglomerateId;
+        this.encodedRegionName = encodedRegionName;
         this.startKey = startKey;
         this.endKey = endKey;
         this.filePath = filePath;
@@ -61,9 +64,14 @@ public class BulkImportPartition implements Externalizable {
         return endKey;
     }
 
+    public String getEncodedRegionName() {
+        return encodedRegionName;
+    }
+
     @Override
     public void writeExternal(ObjectOutput out) throws IOException {
         out.writeLong(conglomerateId);
+        out.writeUTF(encodedRegionName);
         ArrayUtil.writeByteArray(out, startKey);
         ArrayUtil.writeByteArray(out, endKey);
         out.writeUTF(filePath);
@@ -72,6 +80,7 @@ public class BulkImportPartition implements Externalizable {
     @Override
     public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
         conglomerateId = in.readLong();
+        encodedRegionName = in.readUTF();
         startKey = ArrayUtil.readByteArray(in);
         endKey = ArrayUtil.readByteArray(in);
         filePath = in.readUTF();
