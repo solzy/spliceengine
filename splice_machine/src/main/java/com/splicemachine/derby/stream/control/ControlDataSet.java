@@ -19,10 +19,12 @@ import com.splicemachine.access.api.DistributedFileSystem;
 import com.splicemachine.db.iapi.error.StandardException;
 import com.splicemachine.db.iapi.sql.Activation;
 import com.splicemachine.db.iapi.sql.conn.ControlExecutionLimiter;
+import com.splicemachine.db.iapi.sql.conn.StatementContext;
 import com.splicemachine.db.iapi.sql.execute.ExecRow;
 import com.splicemachine.derby.iapi.sql.execute.SpliceOperation;
 import com.splicemachine.derby.impl.sql.execute.operations.window.WindowContext;
 import com.splicemachine.derby.stream.control.output.ControlExportDataSetWriter;
+import com.splicemachine.derby.stream.function.AbstractSpliceFunction;
 import com.splicemachine.derby.stream.function.KeyerFunction;
 import com.splicemachine.derby.stream.function.MergeWindowFunction;
 import com.splicemachine.derby.stream.function.SpliceFlatMapFunction;
@@ -69,11 +71,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
 import static com.splicemachine.derby.stream.control.ControlUtils.entryToTuple;
 import static com.splicemachine.derby.stream.control.ControlUtils.limit;
+import static com.splicemachine.derby.stream.control.ControlUtils.wrap;
 
 /**
  *
@@ -88,7 +92,7 @@ public class ControlDataSet<V> implements DataSet<V> {
     public ControlDataSet(Iterator<V> iterator) {
         this.iterator = iterator;
     }
-
+    
     @Override
     public int partitions() {
         return 1;
@@ -107,7 +111,7 @@ public class ControlDataSet<V> implements DataSet<V> {
     @Override
     public <Op extends SpliceOperation, U> DataSet<U> mapPartitions(SpliceFlatMapFunction<Op,Iterator<V>, U> f) {
         try {
-            return new ControlDataSet<>(f.call(iterator));
+            return new ControlDataSet<>(f.call(wrap(iterator, f)));
         } catch (Exception e) {
             throw Exceptions.getRuntimeException(e);
         }
@@ -142,7 +146,7 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public DataSet<V> distinct(OperationContext context) {
-        return new ControlDataSet<>(newHashSet(iterator, context).iterator());
+        return new ControlDataSet<>(newHashSet(wrap(iterator, context), context).iterator());
     }
 
     @Override
@@ -151,7 +155,7 @@ public class ControlDataSet<V> implements DataSet<V> {
     }
 
     public <Op extends SpliceOperation, K,U>PairDataSet<K, U> index(final SplicePairFunction<Op,V,K,U> function) {
-        return new ControlPairDataSet<>(Iterators.transform(iterator,new Function<V, Tuple2<K, U>>() {
+        return new ControlPairDataSet<>(Iterators.transform(wrap(iterator, function),new Function<V, Tuple2<K, U>>() {
             @Nullable
             @Override
             public Tuple2<K, U> apply(@Nullable V v) {
@@ -176,7 +180,7 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public <Op extends SpliceOperation, U> DataSet<U> map(SpliceFunction<Op,V,U> function) {
-        return new ControlDataSet<U>(Iterators.transform(iterator, function));
+        return new ControlDataSet<U>(Iterators.transform(wrap(iterator, function), function));
     }
 
     @Override
@@ -196,7 +200,7 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public <Op extends SpliceOperation, K> PairDataSet<K, V> keyBy(final SpliceFunction<Op, V, K> function) {
-            return new ControlPairDataSet<>(Iterators.<V,Tuple2<K, V>>transform(iterator, new Function<V, Tuple2<K, V>>() {
+            return new ControlPairDataSet<>(Iterators.<V,Tuple2<K, V>>transform(wrap(iterator, function), new Function<V, Tuple2<K, V>>() {
                 @Nullable
                 @Override
                 public Tuple2<K, V> apply(@Nullable V v) {
@@ -258,7 +262,7 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public <Op extends SpliceOperation> DataSet< V> filter(SplicePredicateFunction<Op, V> f) {
-        return new ControlDataSet<>(Iterators.filter(iterator,f));
+        return new ControlDataSet<>(Iterators.filter(wrap(iterator, f),f));
     }
 
     @Override
@@ -274,8 +278,8 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public DataSet< V> intersect(DataSet<V> dataSet, OperationContext context) {
-        Set<V> left=newHashSet(iterator, context);
-        Set<V> right=newHashSet(((ControlDataSet<V>)dataSet).iterator, context);
+        Set<V> left=newHashSet(wrap(iterator, context), context);
+        Set<V> right=newHashSet(wrap(((ControlDataSet<V>)dataSet).iterator, context), context);
         Sets.SetView<V> intersection=Sets.intersection(left,right);
         return new ControlDataSet<>(intersection.iterator());
     }
@@ -289,8 +293,8 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public DataSet< V> subtract(DataSet<V> dataSet, OperationContext context) {
-        Set<V> left=newHashSet(iterator, context);
-        Set<V> right=newHashSet(((ControlDataSet<V>)dataSet).iterator, context);
+        Set<V> left=newHashSet(wrap(iterator, context), context);
+        Set<V> right=newHashSet(wrap(((ControlDataSet<V>)dataSet).iterator, context), context);
         return new ControlDataSet<>(Sets.difference(left,right).iterator());
     }
 
@@ -301,7 +305,7 @@ public class ControlDataSet<V> implements DataSet<V> {
 
     @Override
     public <Op extends SpliceOperation,U> DataSet<U> flatMap(SpliceFlatMapFunction<Op, V, U> f) {
-        return new ControlDataSet(Iterators.concat(Iterators.transform(iterator,f)));
+        return new ControlDataSet(Iterators.concat(Iterators.transform(wrap(iterator, f),f)));
     }
 
     @Override
@@ -322,7 +326,7 @@ public class ControlDataSet<V> implements DataSet<V> {
     @Override
     public <Op extends SpliceOperation> DataSet<V> take(TakeFunction<Op,V> f) {
         try {
-            return new ControlDataSet<>(f.call(iterator));
+            return new ControlDataSet<>(f.call(wrap(iterator, f)));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -410,11 +414,6 @@ public class ControlDataSet<V> implements DataSet<V> {
     @Override
     public void persist() {
         // no op
-    }
-
-    @Override
-    public Iterator<V> iterator() {
-        return this.toLocalIterator();
     }
 
     @Override
