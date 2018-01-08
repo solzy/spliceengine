@@ -84,11 +84,11 @@ public class ControlUtils {
         }
     }
 
-    public static <E> Iterator<E> wrap(Iterator<E> iterator, AbstractSpliceFunction f) {
-        return wrap(iterator, f.operationContext);
+    public static <E> Iterator<E> checkCancellation(Iterator<E> iterator, AbstractSpliceFunction f) {
+        return checkCancellation(iterator, f.operationContext);
     }
 
-    public static <E> Iterator<E> wrap(Iterator<E> iterator, OperationContext<?> opContext) {
+    public static <E> Iterator<E> checkCancellation(Iterator<E> iterator, OperationContext<?> opContext) {
         if (opContext == null)
             return iterator;
         StatementContext context = opContext.getActivation().getLanguageConnectionContext().getStatementContext();
