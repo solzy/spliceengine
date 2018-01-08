@@ -89,10 +89,12 @@ public class QueryJob implements Callable<Void>{
             streamableRDD.submit();
 
             status.markCompleted(new QueryResult(numPartitions));
-        } finally {
-            ah.close();
+        } catch (CancellationException e) {
             if (jobName != null)
                 SpliceSpark.getContext().sc().cancelJobGroup(jobName);
+            throw e;
+        } finally {
+            ah.close();
         }
 
         return null;
